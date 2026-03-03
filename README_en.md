@@ -1,3 +1,5 @@
+[中文](./README.md)
+
 # Database Comparator (DbComparator)
 
 A tool for comparing table data between Oracle and Gauss databases with multi-threaded concurrent comparison support.

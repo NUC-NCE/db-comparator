@@ -1,3 +1,5 @@
+[English](./README_en.md)
+
 # 数据库对比工具 (DbComparator)
 
 一个用于比对 Oracle 和 Gauss 数据库表数据的工具，支持多线程并发对比。
