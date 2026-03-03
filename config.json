@@ -1,0 +1,18 @@
+{
+    "oracle": {
+        "host": "localhost",
+        "port": 1521,
+        "serviceName": "orcl",
+        "username": "your_oracle_user",
+        "password": "your_oracle_password"
+    },
+    "gauss": {
+        "host": "localhost",
+        "port": 5432,
+        "database": "gaussdb",
+        "username": "your_gauss_user",
+        "password": "your_gauss_password"
+    },
+    "threadCount": 4,
+    "outputDir": "~/answer"
+}
