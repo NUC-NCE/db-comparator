@@ -88,7 +88,7 @@ java -jar target/db-comparator-1.0-SNAPSHOT.jar config.json table.txt
 ## Project Structure
 
 ```
-dataCheck/
+db-comparator/
 ├── src/main/java/com/datacheck/
 │   ├── Config.java              # Configuration loading
 │   ├── DbComparator.java       # Main program entry

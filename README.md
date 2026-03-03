@@ -91,7 +91,7 @@ java -jar target/db-comparator-1.0-SNAPSHOT.jar config.json table.txt
 ## 项目结构
 
 ```
-dataCheck/
+db-comparator/
 ├── src/main/java/com/datacheck/
 │   ├── Config.java              # 配置加载
 │   ├── DbComparator.java       # 主程序入口
