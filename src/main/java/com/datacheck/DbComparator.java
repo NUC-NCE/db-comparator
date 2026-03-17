@@ -10,6 +10,7 @@ import com.datacheck.model.TableFilter;
 import com.datacheck.output.ResultWriter;
 
 import java.io.BufferedReader;
+import java.io.File;
 import java.io.FileReader;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -37,6 +38,16 @@ public class DbComparator {
      * 初始化组件
      */
     public void init() {
+        // 创建输出目录
+        String outputDir = config.getOutputDir();
+        if (outputDir != null && !outputDir.isEmpty()) {
+            File dir = new File(outputDir.replace("~", System.getProperty("user.home")));
+            if (!dir.exists()) {
+                dir.mkdirs();
+                System.out.println("创建输出目录: " + dir.getAbsolutePath());
+            }
+        }
+
         connector = new DatabaseConnector(config);
         comparator = new TableComparator();
         resultWriter = new ResultWriter(config.getOutputDir());
@@ -65,14 +76,12 @@ public class DbComparator {
         try {
             TableData oracleData = dataFetcher.fetchOracleTableData(
                 tableName,
-                tableFilter.getFilterColumn(),
-                tableFilter.getFilterValue(),
+                tableFilter.getWhereClause(),
                 tableFilter.getPrimaryKeys()
             );
             TableData gaussData = dataFetcher.fetchGaussTableData(
                 tableName,
-                tableFilter.getFilterColumn(),
-                tableFilter.getFilterValue(),
+                tableFilter.getWhereClause(),
                 tableFilter.getPrimaryKeys()
             );
 
@@ -98,7 +107,7 @@ public class DbComparator {
         // 提交所有任务
         for (TableFilter tableFilter : tableFilters) {
             String desc = tableFilter.hasFilter()
-                ? tableFilter.getTableName() + " (过滤: " + tableFilter.getFilterColumn() + "=" + tableFilter.getFilterValue() + ")"
+                ? tableFilter.getTableName() + " (过滤: " + tableFilter.getWhereClause() + ")"
                 : tableFilter.getTableName();
             System.out.println("对比表: " + desc);
             futures.add(executor.submit(() -> compareTable(tableFilter)));
@@ -217,40 +226,122 @@ public class DbComparator {
     }
 
     /**
+     * 打印使用说明
+     */
+    private static void printUsage() {
+        System.out.println("用法:");
+        System.out.println("  java -jar db-comparator.jar <oracle_jdbc_url> <oracle_user> <oracle_password> <gauss_jdbc_url> <gauss_user> <gauss_password> <table_list_file> [thread_count] [output_dir]");
+        System.out.println();
+        System.out.println("参数说明:");
+        System.out.println("  oracle_jdbc_url   Oracle JDBC连接串，如: jdbc:oracle:thin:@192.168.1.100:1521:orcl");
+        System.out.println("  oracle_user       Oracle 用户名");
+        System.out.println("  oracle_password   Oracle 密码");
+        System.out.println("  gauss_jdbc_url    GaussDB/PostgreSQL JDBC连接串，如: jdbc:postgresql://192.168.1.101:5432/gaussdb");
+        System.out.println("  gauss_user        GaussDB 用户名");
+        System.out.println("  gauss_password    GaussDB 密码");
+        System.out.println("  table_list_file   表列表文件路径");
+        System.out.println("  thread_count      线程数（可选，默认4）");
+        System.out.println("  output_dir        输出目录（可选，默认./output）");
+        System.out.println();
+        System.out.println("示例:");
+        System.out.println("  java -jar db-comparator.jar \\");
+        System.out.println("    jdbc:oracle:thin:@192.168.1.100:1521:orcl scott tiger \\");
+        System.out.println("    jdbc:postgresql://192.168.1.101:5432/gaussdb scott tiger \\");
+        System.out.println("    table.txt 4 ./output");
+    }
+
+    /**
      * 主程序入口
      */
     public static void main(String[] args) {
-        String configPath = "config.json";
-        String tableFilePath = "table.txt";
+        // 新方式: 命令行参数
+        if (args.length >= 7) {
+            String oracleJdbcUrl = args[0];
+            String oracleUser = args[1];
+            String oraclePassword = args[2];
+            String gaussJdbcUrl = args[3];
+            String gaussUser = args[4];
+            String gaussPassword = args[5];
+            String tableFilePath = args[6];
+            int threadCount = args.length >= 8 ? Integer.parseInt(args[7]) : 4;
+            String outputDir = args.length >= 9 ? args[8] : "./output";
 
-        if (args.length >= 2) {
-            configPath = args[0];
-            tableFilePath = args[1];
-        }
+            try {
+                // 读取表配置列表
+                List<TableFilter> tableFilters = readTableNames(tableFilePath);
+                if (tableFilters.isEmpty()) {
+                    System.err.println("错误: " + tableFilePath + " 中没有表配置");
+                    System.exit(1);
+                }
+                System.out.println("从 " + tableFilePath + " 读取到 " + tableFilters.size() + " 个表配置");
 
-        try {
-            // 读取表配置列表
-            List<TableFilter> tableFilters = readTableNames(tableFilePath);
-            if (tableFilters.isEmpty()) {
-                System.err.println("错误: " + tableFilePath + " 中没有表配置");
+                // 构建配置
+                Config config = new Config();
+                config.setThreadCount(threadCount);
+                config.setOutputDir(outputDir);
+
+                Config.OracleConfig oracleConfig = new Config.OracleConfig();
+                oracleConfig.setJdbcUrl(oracleJdbcUrl);
+                oracleConfig.setUsername(oracleUser);
+                oracleConfig.setPassword(oraclePassword);
+
+                Config.GaussConfig gaussConfig = new Config.GaussConfig();
+                gaussConfig.setJdbcUrl(gaussJdbcUrl);
+                gaussConfig.setUsername(gaussUser);
+                gaussConfig.setPassword(gaussPassword);
+
+                config.setOracle(oracleConfig);
+                config.setGauss(gaussConfig);
+
+                // 运行对比
+                DbComparator comparator = new DbComparator(config);
+                comparator.init();
+                comparator.connect();
+                comparator.run(tableFilters);
+                comparator.close();
+
+            } catch (Exception e) {
+                System.err.println("错误: " + e.getMessage());
+                e.printStackTrace();
                 System.exit(1);
             }
-            System.out.println("从 " + tableFilePath + " 读取到 " + tableFilters.size() + " 个表配置");
-
-            // 加载配置
-            Config config = Config.load(configPath);
-
-            // 运行对比
-            DbComparator comparator = new DbComparator(config);
-            comparator.init();
-            comparator.connect();
-            comparator.run(tableFilters);
-            comparator.close();
-
-        } catch (Exception e) {
-            System.err.println("错误: " + e.getMessage());
-            e.printStackTrace();
-            System.exit(1);
+            return;
         }
+
+        // 旧方式: 配置文件
+        if (args.length >= 2) {
+            try {
+                String configPath = args[0];
+                String tableFilePath = args[1];
+
+                // 读取表配置列表
+                List<TableFilter> tableFilters = readTableNames(tableFilePath);
+                if (tableFilters.isEmpty()) {
+                    System.err.println("错误: " + tableFilePath + " 中没有表配置");
+                    System.exit(1);
+                }
+                System.out.println("从 " + tableFilePath + " 读取到 " + tableFilters.size() + " 个表配置");
+
+                // 加载配置
+                Config config = Config.load(configPath);
+
+                // 运行对比
+                DbComparator comparator = new DbComparator(config);
+                comparator.init();
+                comparator.connect();
+                comparator.run(tableFilters);
+                comparator.close();
+
+            } catch (Exception e) {
+                System.err.println("错误: " + e.getMessage());
+                e.printStackTrace();
+                System.exit(1);
+            }
+            return;
+        }
+
+        // 参数不足，打印使用说明
+        printUsage();
+        System.exit(1);
     }
 }

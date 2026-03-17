@@ -54,17 +54,34 @@
 
 在 `table.txt` 文件中列出要比对的表名，每行一个表名。
 
-支持带过滤条件的配置格式：
+支持带过滤条件和主键的配置格式：
+
+```
+表名 [查询条件] [主键列表]
+```
 
 示例：
 ```
-users 1 1 []
-orders status active [pk1,pk2...]
+# 全表对比
+users
+
+# 仅查询条件
+orders [status = 'pending']
+
+# 查询条件 + 主键
+products [status = 'active'] [product_id]
+
+# 仅主键
+users [] [user_id]
+
+# 复杂查询条件
+orders [status = 'pending' AND create_time > '2024-01-01'] [order_id,user_id]
 ```
 
-sql
-select * from users where 1 = 1
-select * from orders where status = active (对比时用主键数组作为对比主键)
+说明：
+- `[查询条件]`：直接拼接到 WHERE 后，支持完整的 SQL 表达式（AND、OR、LIKE 等）
+- `[主键列表]`：自定义对比主键，多个主键用逗号分隔
+- 两个方括号都是可选的，可以只填一个
 
 ### 3. 构建项目
 

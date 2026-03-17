@@ -54,14 +54,34 @@ Configuration:
 
 List the table names to compare in `table.txt`, one table name per line.
 
-Supports configuration with filter conditions:
+Supports configuration with filter conditions and custom primary keys:
 
+```
+tableName [whereClause] [primaryKeys]
+```
 
 Examples:
 ```
-users 1 1 []
-orders status active [pk1,pk2...]
+# Full table comparison
+users
+
+# With WHERE clause only
+orders [status = 'pending']
+
+# With WHERE clause and primary keys
+products [status = 'active'] [product_id]
+
+# Primary keys only
+users [] [user_id]
+
+# Complex WHERE clause
+orders [status = 'pending' AND create_time > '2024-01-01'] [order_id,user_id]
 ```
+
+Notes:
+- `[whereClause]`: Appended directly after WHERE, supports full SQL expressions (AND, OR, LIKE, etc.)
+- `[primaryKeys]`: Custom primary keys for comparison, multiple keys separated by commas
+- Both brackets are optional
 
 ### 3. Build the Project
 

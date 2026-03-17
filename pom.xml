@@ -23,26 +23,29 @@
             <version>21.9.0.0</version>
         </dependency>
 
-        <!-- PostgreSQL JDBC Driver (Gauss兼容) -->
+        <!-- PostgreSQL JDBC Driver - 设置为 optional，允许使用者替换 -->
         <dependency>
             <groupId>org.postgresql</groupId>
             <artifactId>postgresql</artifactId>
             <version>42.6.0</version>
+            <optional>true</optional>
         </dependency>
+
+        <!-- GaussDB JDBC Driver (可选，使用PostgreSQL驱动即可，GaussDB兼容) -->
+        <!-- 如需使用GaussDB专用驱动，可取消注释以下依赖 -->
+        <!--
+        <dependency>
+            <groupId>com.huawei.gauss200</groupId>
+            <artifactId>jdbc</artifactId>
+            <version>3.1.0-1</version>
+        </dependency>
+        -->
 
         <!-- Jackson for JSON -->
         <dependency>
             <groupId>com.fasterxml.jackson.core</groupId>
             <artifactId>jackson-databind</artifactId>
             <version>2.15.2</version>
-        </dependency>
-
-        <!-- Lombok -->
-        <dependency>
-            <groupId>org.projectlombok</groupId>
-            <artifactId>lombok</artifactId>
-            <version>1.18.28</version>
-            <scope>provided</scope>
         </dependency>
     </dependencies>
 
@@ -55,6 +58,10 @@
                 <configuration>
                     <source>1.8</source>
                     <target>1.8</target>
+                    <fork>false</fork>
+                    <compilerArgs>
+                        <arg>-Xlint:all</arg>
+                    </compilerArgs>
                 </configuration>
             </plugin>
             <plugin>
@@ -73,6 +80,26 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-shade-plugin</artifactId>
                 <version>3.5.0</version>
+                <configuration>
+                    <artifactSet>
+                        <excludes>
+                            <!-- 排除 PostgreSQL 驱动，允许使用者替换为其他驱动 -->
+                            <exclude>org.postgresql:postgresql</exclude>
+                            <!-- 排除 Oracle 驱动，允许使用者替换为其他驱动 -->
+                            <exclude>com.oracle.database.jdbc:ojdbc8</exclude>
+                        </excludes>
+                    </artifactSet>
+                    <filters>
+                        <filter>
+                            <excludes>
+                                <!-- 排除 PostgreSQL 类 -->
+                                <exclude>org/postgresql/**</exclude>
+                                <!-- 排除 Oracle 类 -->
+                                <exclude>oracle/**</exclude>
+                            </excludes>
+                        </filter>
+                    </filters>
+                </configuration>
                 <executions>
                     <execution>
                         <phase>package</phase>

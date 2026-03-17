@@ -1,7 +1,6 @@
 package com.datacheck.db;
 
 import com.datacheck.Config;
-import lombok.Getter;
 
 import java.sql.Connection;
 import java.sql.DriverManager;
@@ -10,7 +9,6 @@ import java.sql.SQLException;
 /**
  * 数据库连接器
  */
-@Getter
 public class DatabaseConnector {
     private Connection oracleConnection;
     private Connection gaussConnection;
@@ -18,6 +16,14 @@ public class DatabaseConnector {
 
     public DatabaseConnector(Config config) {
         this.config = config;
+    }
+
+    public Connection getOracleConnection() {
+        return oracleConnection;
+    }
+
+    public Connection getGaussConnection() {
+        return gaussConnection;
     }
 
     /**
