@@ -11,6 +11,7 @@
 - 支持表过滤条件筛选数据
 - 支持自定义主键配置
 - 输出详细的差异报告
+- 支持 CLI 命令行和 SDK 编程调用
 
 ## 环境要求
 
@@ -21,46 +22,12 @@
 
 ## 快速开始
 
-### 1. 配置文件 (config.json)
-
-```json
-{
-    "oracle": {
-        "host": "localhost",
-        "port": 1521,
-        "serviceName": "orcl",
-        "username": "your_oracle_user",
-        "password": "your_oracle_password"
-    },
-    "gauss": {
-        "host": "localhost",
-        "port": 5432,
-        "database": "gaussdb",
-        "username": "your_gauss_user",
-        "password": "your_gauss_password"
-    },
-    "threadCount": 4,
-    "outputDir": "~/answer"
-}
-```
-
-配置说明:
-- `oracle`: Oracle 数据库连接配置
-- `gauss`: Gauss 数据库连接配置
-- `threadCount`: 并发线程数，默认为 4
-- `outputDir`: 差异结果输出目录
-
-### 2. 表名配置文件 (table.txt)
+### 1. 表名配置文件 (table.txt)
 
 在 `table.txt` 文件中列出要比对的表名，每行一个表名。
 
-支持带过滤条件和主键的配置格式：
+格式：`表名 [查询条件] [主键列表]`
 
-```
-表名 [查询条件] [主键列表]
-```
-
-示例：
 ```
 # 全表对比
 users
@@ -83,27 +50,244 @@ orders [status = 'pending' AND create_time > '2024-01-01'] [order_id,user_id]
 - `[主键列表]`：自定义对比主键，多个主键用逗号分隔
 - 两个方括号都是可选的，可以只填一个
 
-### 3. 构建项目
+### 2. 构建项目
 
-```bash
-./build.sh
-```
-
-或者手动执行：
 ```bash
 mvn clean package -DskipTests
 ```
 
-### 4. 运行程序
+### 3. 使用方式
+
+---
+
+## CLI 命令行调用
+
+### 基本语法
 
 ```bash
-./run.sh
+java -jar db-comparator.jar \
+    <oracle_jdbc_url> <oracle_user> <oracle_password> \
+    <gauss_jdbc_url> <gauss_user> <gauss_password> \
+    <table_list_file> [thread_count] [output_dir]
 ```
 
-或者指定配置文件：
+### 参数说明
+
+| 参数 | 必填 | 说明 | 示例 |
+|------|------|------|------|
+| oracle_jdbc_url | 是 | Oracle JDBC 连接串 | `jdbc:oracle:thin:@192.168.1.100:1521:orcl` |
+| oracle_user | 是 | Oracle 用户名 | `scott` |
+| oracle_password | 是 | Oracle 密码 | `tiger` |
+| gauss_jdbc_url | 是 | GaussDB/PostgreSQL JDBC 连接串 | `jdbc:postgresql://192.168.1.101:5432/gaussdb` |
+| gauss_user | 是 | GaussDB 用户名 | `scott` |
+| gauss_password | 是 | GaussDB 密码 | `tiger` |
+| table_list_file | 是 | 表列表文件路径 | `table.txt` |
+| thread_count | 否 | 线程数，默认 4 | `4` |
+| output_dir | 否 | 输出目录，默认 ./output | `./output` |
+
+### 使用示例
+
+**示例1：基本对比**
 ```bash
-java -jar target/db-comparator-1.0-SNAPSHOT.jar config.json table.txt
+java -jar db-comparator.jar \
+    jdbc:oracle:thin:@192.168.1.100:1521:orcl scott tiger \
+    jdbc:postgresql://192.168.1.101:5432/gaussdb scott tiger \
+    table.txt
 ```
+
+**示例2：指定线程数和输出目录**
+```bash
+java -jar db-comparator.jar \
+    jdbc:oracle:thin:@192.168.1.100:1521:orcl scott tiger \
+    jdbc:postgresql://192.168.1.101:5432/gaussdb scott tiger \
+    table.txt 4 ./output
+```
+
+---
+
+## SDK 编程调用
+
+### 添加依赖
+
+```xml
+<dependency>
+    <groupId>com.datacheck</groupId>
+    <artifactId>db-comparator</artifactId>
+    <version>1.0-SNAPSHOT</version>
+</dependency>
+```
+
+或者直接引入打包好的 JAR 文件。
+
+### 基本使用
+
+```java
+import com.datacheck.sdk.DbComparator;
+import com.datacheck.sdk.model.ComparisonSummary;
+
+try (DbComparator comparator = DbComparator.builder()
+    .oracleJdbcUrl("jdbc:oracle:thin:@192.168.1.100:1521:orcl")
+    .oracleUsername("scott")
+    .oraclePassword("tiger")
+    .gaussJdbcUrl("jdbc:postgresql://192.168.1.101:5432/gaussdb")
+    .gaussUsername("scott")
+    .gaussPassword("tiger")
+    .tableListFile("table.txt")
+    .threadCount(4)
+    .build()) {
+
+    comparator.init();
+    comparator.connect();
+    comparator.compare();
+
+    ComparisonSummary summary = comparator.getSummary();
+    System.out.println("总表数: " + summary.getTotalTables());
+    System.out.println("数据一致: " + summary.getConsistentCount());
+    System.out.println("数据不一致: " + summary.getDifferentCount());
+}
+```
+
+### API 参考
+
+#### 数据库配置
+
+| 方法 | 说明 |
+|------|------|
+| `oracleJdbcUrl(String url)` | Oracle JDBC 连接串 |
+| `oracleUsername(String user)` | Oracle 用户名 |
+| `oraclePassword(String pwd)` | Oracle 密码 |
+| `gaussJdbcUrl(String url)` | GaussDB/PostgreSQL JDBC 连接串 |
+| `gaussUsername(String user)` | GaussDB 用户名 |
+| `gaussPassword(String pwd)` | GaussDB 密码 |
+
+#### 表列表配置
+
+| 方法 | 说明 |
+|------|------|
+| `tableListFile(String path)` | 表列表文件路径 |
+| `tables(List<String> names)` | 表名列表 |
+| `tableFilters(List<TableFilter> filters)` | 完整表配置（支持过滤条件和主键） |
+| `addTable(String name)` | 添加单个表 |
+
+#### 其他配置
+
+| 方法 | 说明 |
+|------|------|
+| `threadCount(int count)` | 线程数（默认4） |
+| `outputDir(String path)` | 输出目录 |
+| `writeResultFiles(boolean write)` | 是否写入结果文件 |
+| `oracleConfig(DatabaseConfig config)` | Oracle 配置对象 |
+| `gaussConfig(DatabaseConfig config)` | GaussDB 配置对象 |
+
+### SDK 使用示例
+
+**示例1：启用结果文件输出**
+```java
+try (DbComparator comparator = DbComparator.builder()
+    .oracleJdbcUrl("jdbc:oracle:thin:@192.168.1.100:1521:orcl")
+    .oracleUsername("scott")
+    .oraclePassword("tiger")
+    .gaussJdbcUrl("jdbc:postgresql://192.168.1.101:5432/gaussdb")
+    .gaussUsername("scott")
+    .gaussPassword("tiger")
+    .tableListFile("table.txt")
+    .threadCount(4)
+    .outputDir("./output")
+    .writeResultFiles(true)
+    .build()) {
+
+    comparator.init();
+    comparator.connect();
+    comparator.compare();
+
+    ComparisonSummary summary = comparator.getSummary();
+    System.out.println("总表数: " + summary.getTotalTables());
+}
+```
+
+**示例2：代码传入表列表**
+```java
+List<String> tables = Arrays.asList("users", "orders", "products");
+
+try (DbComparator comparator = DbComparator.builder()
+    .oracleJdbcUrl("jdbc:oracle:thin:@192.168.1.100:1521:orcl")
+    .oracleUsername("scott")
+    .oraclePassword("tiger")
+    .gaussJdbcUrl("jdbc:postgresql://192.168.1.101:5432/gaussdb")
+    .gaussUsername("scott")
+    .gaussPassword("tiger")
+    .tables(tables)
+    .build()) {
+
+    comparator.init();
+    comparator.connect();
+    comparator.compare();
+}
+```
+
+**示例3：带过滤条件和主键**
+```java
+List<TableFilter> filters = Arrays.asList(
+    new TableFilter("users", "status = 'active'", Arrays.asList("user_id")),
+    new TableFilter("orders", "order_date > '2025-01-01'", Arrays.asList("order_id")),
+    new TableFilter("products")
+);
+
+try (DbComparator comparator = DbComparator.builder()
+    .oracleJdbcUrl("jdbc:oracle:thin:@192.168.1.100:1521:orcl")
+    .oracleUsername("scott")
+    .oraclePassword("tiger")
+    .gaussJdbcUrl("jdbc:postgresql://192.168.1.101:5432/gaussdb")
+    .gaussUsername("scott")
+    .gaussPassword("tiger")
+    .tableFilters(filters)
+    .build()) {
+
+    comparator.init();
+    comparator.connect();
+    comparator.compare();
+}
+```
+
+### 结果获取
+
+```java
+// 汇总结果
+ComparisonSummary summary = comparator.getSummary();
+summary.getTotalTables();      // 总表数
+summary.getSuccessCount();    // 成功数
+summary.getErrorCount();      // 错误数
+summary.getConsistentCount(); // 数据一致数
+summary.getDifferentCount();  // 数据不一致数
+
+// 详细结果
+Map<String, CompareResult> results = comparator.getResults();
+for (Map.Entry<String, CompareResult> entry : results.entrySet()) {
+    CompareResult result = entry.getValue();
+    result.getStatus();        // success / error
+    result.getMessage();      // 信息
+    result.hasDifferences();  // 是否有差异
+}
+```
+
+---
+
+## JDBC 连接串格式
+
+### Oracle
+
+| 格式 | 示例 |
+|------|------|
+| SID 方式 | `jdbc:oracle:thin:@192.168.1.100:1521:orcl` |
+| Service Name 方式 | `jdbc:oracle:thin:@//192.168.1.100:1521/orclpdb1` |
+
+### PostgreSQL / GaussDB
+
+| 格式 | 示例 |
+|------|------|
+| 标准格式 | `jdbc:postgresql://192.168.1.101:5432/gaussdb` |
+
+---
 
 ## 项目结构
 
@@ -123,13 +307,14 @@ db-comparator/
 │   │   ├── Difference.java      # 差异模型
 │   │   ├── TableData.java       # 表数据模型
 │   │   └── TableFilter.java     # 表过滤条件
-│   └── output/
-│       └── ResultWriter.java    # 结果输出
-├── config.json                  # 配置文件
+│   ├── output/
+│   │   └── ResultWriter.java    # 结果输出
+│   └── sdk/                     # SDK 模块
+│       ├── DbComparator.java
+│       └── DbComparatorBuilder.java
 ├── table.txt                    # 表名列表
-├── build.sh                     # 构建脚本
-├── run.sh                       # 运行脚本
-└── pom.xml                      # Maven 配置
+├── pom.xml                      # Maven 配置
+└── README.md                    # 本文档
 ```
 
 ## 依赖项
@@ -137,7 +322,6 @@ db-comparator/
 - Oracle JDBC Driver (ojdbc8)
 - PostgreSQL JDBC Driver (Gauss兼容)
 - Jackson (JSON处理)
-- Lombok
 
 ## 许可证
 
