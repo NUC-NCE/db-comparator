@@ -42,6 +42,10 @@ public class DbComparatorBuilder {
     private boolean writeResultFiles = false;
     private SdkOptions options;
 
+    // 分批处理配置
+    private int batchSize = 10000;      // 每批处理行数
+    private int maxMemoryRows = 50000;  // 最大内存行数
+
     /**
      * Oracle JDBC连接串
      * 例如: jdbc:oracle:thin:@192.168.1.100:1521:orcl
@@ -210,7 +214,24 @@ public class DbComparatorBuilder {
                 this.outputDir = options.getOutputDir();
             }
             this.writeResultFiles = options.isWriteResultFiles();
+            if (options.getBatchSize() > 0) {
+                this.batchSize = options.getBatchSize();
+            }
+            if (options.getMaxMemoryRows() > 0) {
+                this.maxMemoryRows = options.getMaxMemoryRows();
+            }
         }
+        return this;
+    }
+
+    /**
+     * 设置分批处理参数
+     * @param batchSize 每批处理行数，默认 10000
+     * @param maxMemoryRows 最大内存行数，超过则分批处理，默认 50000
+     */
+    public DbComparatorBuilder batchConfig(int batchSize, int maxMemoryRows) {
+        this.batchSize = batchSize;
+        this.maxMemoryRows = maxMemoryRows;
         return this;
     }
 
@@ -267,6 +288,9 @@ public class DbComparatorBuilder {
         if (tableConfigTable != null && !tableConfigTable.isEmpty()) {
             comparator.setTableConfigTable(tableConfigTable);
         }
+
+        // 设置分批处理参数
+        comparator.setBatchConfig(batchSize, maxMemoryRows);
 
         return comparator;
     }

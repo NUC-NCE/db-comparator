@@ -43,6 +43,10 @@ public class DbComparator implements AutoCloseable {
     // 从数据库获取表配置的表名
     private String tableConfigTable;
 
+    // 分批处理配置
+    private int batchSize = 10000;      // 每批处理行数
+    private int maxMemoryRows = 50000;  // 最大内存行数，超过则分批处理
+
     private final Map<String, CompareResult> results = new ConcurrentHashMap<>();
     private ComparisonSummary summary;
 
@@ -69,6 +73,16 @@ public class DbComparator implements AutoCloseable {
      */
     public void setTableConfigTable(String tableConfigTable) {
         this.tableConfigTable = tableConfigTable;
+    }
+
+    /**
+     * 设置分批处理参数
+     * @param batchSize 每批处理行数，默认 10000
+     * @param maxMemoryRows 最大内存行数，超过则分批处理，默认 50000
+     */
+    public void setBatchConfig(int batchSize, int maxMemoryRows) {
+        this.batchSize = batchSize;
+        this.maxMemoryRows = maxMemoryRows;
     }
 
     /**
@@ -178,24 +192,259 @@ public class DbComparator implements AutoCloseable {
         result.setTableName(tableName);
 
         try {
-            TableData oracleData = dataFetcher.fetchOracleTableData(
-                tableName,
-                tableFilter.getWhereClause(),
-                tableFilter.getPrimaryKeys()
-            );
-            TableData gaussData = dataFetcher.fetchGaussTableData(
-                tableName,
-                tableFilter.getWhereClause(),
-                tableFilter.getPrimaryKeys()
-            );
+            // 获取列信息和主键
+            List<String> columns = dataFetcher.getMetadata().getOracleColumns(tableName);
+            List<String> primaryKeys = tableFilter.getPrimaryKeys();
+            if (primaryKeys == null) {
+                primaryKeys = dataFetcher.getMetadata().getOraclePrimaryKeys(tableName);
+            }
 
-            result = comparator.compare(oracleData, gaussData);
+            // 检查是否需要分批处理
+            long oracleCount = dataFetcher.countRows(
+                connector.getOracleConnection(), tableName,
+                tableFilter.getWhereClause(), true);
+            long gaussCount = dataFetcher.countRows(
+                connector.getGaussConnection(), tableName,
+                tableFilter.getWhereClause(), false);
+            long totalCount = oracleCount + gaussCount;
+
+            if (totalCount > maxMemoryRows) {
+                // 大表分批处理
+                System.out.println("表 " + tableName + " 数据量较大(" + totalCount + ")，采用分批处理...");
+                result = compareTableBatch(tableName, columns, primaryKeys, tableFilter.getWhereClause());
+            } else {
+                // 小表直接全量加载
+                TableData oracleData = dataFetcher.fetchOracleTableData(
+                    tableName,
+                    tableFilter.getWhereClause(),
+                    primaryKeys
+                );
+                TableData gaussData = dataFetcher.fetchGaussTableData(
+                    tableName,
+                    tableFilter.getWhereClause(),
+                    primaryKeys
+                );
+                result = comparator.compare(oracleData, gaussData);
+            }
         } catch (Exception e) {
             result.setStatus("error");
             result.setMessage(e.getMessage());
         }
 
         return result;
+    }
+
+    /**
+     * 分批对比大表
+     */
+    private CompareResult compareTableBatch(String tableName, List<String> columns,
+                                          List<String> primaryKeys, String whereClause) throws Exception {
+        CompareResult result = new CompareResult();
+        result.setTableName(tableName);
+        result.setStatus("success");
+
+        // 获取所有主键值
+        List<Object[]> oraclePkValues = dataFetcher.fetchPrimaryKeyValues(
+            connector.getOracleConnection(), tableName, primaryKeys, whereClause, true);
+        List<Object[]> gaussPkValues = dataFetcher.fetchPrimaryKeyValues(
+            connector.getGaussConnection(), tableName, primaryKeys, whereClause, false);
+
+        // 构建主键集合用于查找差异
+        java.util.Set<String> oraclePkSet = new java.util.HashSet<>();
+        for (Object[] row : oraclePkValues) {
+            oraclePkSet.add(buildPkKey(row, primaryKeys));
+        }
+        java.util.Set<String> gaussPkSet = new java.util.HashSet<>();
+        for (Object[] row : gaussPkValues) {
+            gaussPkSet.add(buildPkKey(row, primaryKeys));
+        }
+
+        // 找出各自独有的主键
+        java.util.Set<String> oracleOnly = new java.util.HashSet<>(oraclePkSet);
+        oracleOnly.removeAll(gaussPkSet);
+
+        java.util.Set<String> gaussOnly = new java.util.HashSet<>(gaussPkSet);
+        gaussOnly.removeAll(oraclePkSet);
+
+        java.util.Set<String> commonPk = new java.util.HashSet<>(oraclePkSet);
+        commonPk.retainAll(gaussPkSet);
+
+        // 分批获取共同主键的数据进行比对
+        List<List<Object[]>> oraclePkBatches = partitionList(oraclePkValues, batchSize);
+        List<List<Object[]>> gaussPkBatches = partitionList(gaussPkValues, batchSize);
+
+        List<com.datacheck.model.Difference> differences = new ArrayList<>();
+
+        // 处理 Oracle 独有的数据
+        for (Object[] pkRow : oraclePkValues) {
+            String pkKey = buildPkKey(pkRow, primaryKeys);
+            if (oracleOnly.contains(pkKey)) {
+                List<Object[]> rows = dataFetcher.fetchRowsByPrimaryKeyBatch(
+                    connector.getOracleConnection(), tableName, primaryKeys,
+                    java.util.Collections.singletonList(pkRow), whereClause, true);
+                if (!rows.isEmpty()) {
+                    com.datacheck.model.Difference diff = new com.datacheck.model.Difference();
+                    diff.setType(com.datacheck.model.Difference.ORACLE_ONLY);
+                    diff.setPkKey(pkKey);
+                    diff.setOracleData(rowToMap(rows.get(0), columns));
+                    differences.add(diff);
+                }
+            }
+        }
+
+        // 处理 Gauss 独有的数据
+        for (Object[] pkRow : gaussPkValues) {
+            String pkKey = buildPkKey(pkRow, primaryKeys);
+            if (gaussOnly.contains(pkKey)) {
+                List<Object[]> rows = dataFetcher.fetchRowsByPrimaryKeyBatch(
+                    connector.getGaussConnection(), tableName, primaryKeys,
+                    java.util.Collections.singletonList(pkRow), whereClause, false);
+                if (!rows.isEmpty()) {
+                    com.datacheck.model.Difference diff = new com.datacheck.model.Difference();
+                    diff.setType(com.datacheck.model.Difference.GAUSS_ONLY);
+                    diff.setPkKey(pkKey);
+                    diff.setGaussData(rowToMap(rows.get(0), columns));
+                    differences.add(diff);
+                }
+            }
+        }
+
+        // 分批比对共同主键的数据
+        for (int i = 0; i < oraclePkBatches.size(); i++) {
+            List<Object[]> oracleBatch = oraclePkBatches.get(i);
+            List<Object[]> gaussBatch = i < gaussPkBatches.size() ? gaussPkBatches.get(i) : new ArrayList<>();
+
+            // 获取批次数据
+            List<Object[]> oracleRows = dataFetcher.fetchRowsByPrimaryKeyBatch(
+                connector.getOracleConnection(), tableName, primaryKeys, oracleBatch, whereClause, true);
+            List<Object[]> gaussRows = dataFetcher.fetchRowsByPrimaryKeyBatch(
+                connector.getGaussConnection(), tableName, primaryKeys, gaussBatch, whereClause, false);
+
+            // 构建主键到行的映射
+            java.util.Map<String, Object[]> oracleMap = new java.util.HashMap<>();
+            for (Object[] row : oracleRows) {
+                oracleMap.put(buildPkKeyFromRow(row, columns, primaryKeys), row);
+            }
+            java.util.Map<String, Object[]> gaussMap = new java.util.HashMap<>();
+            for (Object[] row : gaussRows) {
+                gaussMap.put(buildPkKeyFromRow(row, columns, primaryKeys), row);
+            }
+
+            // 找出共同主键中数据不同的
+            java.util.Set<String> commonAndBothExist = new java.util.HashSet<>(oracleMap.keySet());
+            commonAndBothExist.retainAll(gaussMap.keySet());
+
+            for (String pkKey : commonAndBothExist) {
+                Object[] oracleRow = oracleMap.get(pkKey);
+                Object[] gaussRow = gaussMap.get(pkKey);
+                if (!rowEquals(oracleRow, gaussRow, columns)) {
+                    com.datacheck.model.Difference diff = new com.datacheck.model.Difference();
+                    diff.setType(com.datacheck.model.Difference.DIFFERENT);
+                    diff.setPkKey(pkKey);
+                    diff.setOracleData(rowToMap(oracleRow, columns));
+                    diff.setGaussData(rowToMap(gaussRow, columns));
+                    differences.add(diff);
+                }
+            }
+        }
+
+        result.setDifferences(differences);
+        return result;
+    }
+
+    /**
+     * 将列表分批
+     */
+    private <T> List<List<T>> partitionList(List<T> list, int batchSize) {
+        List<List<T>> batches = new ArrayList<>();
+        for (int i = 0; i < list.size(); i += batchSize) {
+            batches.add(new ArrayList<>(list.subList(i, Math.min(i + batchSize, list.size()))));
+        }
+        return batches;
+    }
+
+    /**
+     * 根据主键值数组构建主键字符串
+     */
+    private String buildPkKey(Object[] pkRow, List<String> primaryKeys) {
+        if (pkRow == null || pkRow.length == 0) {
+            return "NULL";
+        }
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < pkRow.length; i++) {
+            if (i > 0) sb.append("_");
+            sb.append(pkRow[i] != null ? pkRow[i].toString() : "NULL");
+        }
+        return sb.toString();
+    }
+
+    /**
+     * 根据行数据和列信息构建主键字符串
+     */
+    private String buildPkKeyFromRow(Object[] row, List<String> columns, List<String> primaryKeys) {
+        if (row == null || primaryKeys == null || primaryKeys.isEmpty()) {
+            return "NULL";
+        }
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < primaryKeys.size(); i++) {
+            if (i > 0) sb.append("_");
+            int colIndex = columns.indexOf(primaryKeys.get(i));
+            if (colIndex >= 0 && colIndex < row.length) {
+                sb.append(row[colIndex] != null ? row[colIndex].toString() : "NULL");
+            } else {
+                sb.append("NULL");
+            }
+        }
+        return sb.toString();
+    }
+
+    /**
+     * 将行数据转换为 Map
+     */
+    private java.util.Map<String, Object> rowToMap(Object[] row, List<String> columns) {
+        java.util.Map<String, Object> map = new java.util.HashMap<>();
+        if (row != null) {
+            for (int i = 0; i < columns.size() && i < row.length; i++) {
+                map.put(columns.get(i), row[i]);
+            }
+        }
+        return map;
+    }
+
+    /**
+     * 比较两行数据是否相等（使用 ValueComparator）
+     */
+    private boolean rowEquals(Object[] row1, Object[] row2, List<String> columns) {
+        if (row1 == row2) return true;
+        if (row1 == null || row2 == null) return false;
+        if (row1.length != row2.length) return false;
+        for (int i = 0; i < row1.length; i++) {
+            String columnName = columns.get(i);
+            if (shouldIgnoreTimeField(columnName)) {
+                continue;
+            }
+            if (!com.datacheck.util.ValueComparator.equals(row1[i], row2[i])) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * 判断是否应该忽略时间类型字段
+     */
+    private boolean shouldIgnoreTimeField(String columnName) {
+        if (columnName == null) return false;
+        String upper = columnName.toUpperCase();
+        return upper.endsWith("_TIME") || upper.endsWith("_DATE")
+            || upper.contains("TIME") || upper.contains("DATE")
+            || upper.contains("TIMESTAMP")
+            || upper.equals("CREATEDATE") || upper.equals("UPDATEDATE")
+            || upper.equals("CREATETIME") || upper.equals("UPDATETIME")
+            || upper.equals("MODIFYDATE")
+            || upper.equals("DATA_DATA") || upper.equals("DATADATA")
+            || upper.equals("SYSDATE") || upper.equals("SYSTIMESTAMP")
+            || upper.equals("CURRENT_DATE") || upper.equals("CURRENT_TIMESTAMP");
     }
 
     /**

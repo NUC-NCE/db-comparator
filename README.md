@@ -183,6 +183,7 @@ try (DbComparator comparator = DbComparator.builder()
 | `oracleConnection(Connection conn)` | 直接传入已建立的 Oracle Connection |
 | `gaussConnection(Connection conn)` | 直接传入已建立的 GaussDB Connection |
 | `tableConfigTable(String tableName)` | 从数据库表获取表配置的表名（默认 table_check_info） |
+| `batchConfig(int batchSize, int maxMemoryRows)` | 分批处理配置（默认 10000/50000） |
 
 ### SDK 使用示例
 
@@ -291,6 +292,19 @@ try (DbComparator comparator = DbComparator.builder()
 | products | [] | [product_id] |
 
 **说明**：condition 和 key 字段值已包含方括号格式，与 table.txt 文件格式一致。
+
+### 大表分批处理
+
+当数据量较大时（如上百万行），SDK 会自动采用分批处理策略，防止内存溢出。
+
+| 参数 | 默认值 | 说明 |
+|------|--------|------|
+| `batchSize` | 10000 | 每批处理的主键行数 |
+| `maxMemoryRows` | 50000 | 超过此阈值则启用分批处理 |
+
+```java
+.batchConfig(10000, 50000)  // 可选，已为默认值
+```
 
 ### 结果获取
 
