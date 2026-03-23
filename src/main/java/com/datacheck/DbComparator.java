@@ -12,6 +12,7 @@ import com.datacheck.output.ResultWriter;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileReader;
+import java.sql.Connection;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -206,6 +207,18 @@ public class DbComparator {
         if (connector != null) {
             connector.closeAll();
         }
+    }
+
+    /**
+     * 注入外部数据库连接
+     * 在调用 init() 之后、connect() 之前调用此方法
+     */
+    public void injectConnections(Connection oracleConn, Connection gaussConn) {
+        if (connector == null) {
+            throw new IllegalStateException("请先调用 init() 方法");
+        }
+        connector.setExternalOracleConnection(oracleConn);
+        connector.setExternalGaussConnection(gaussConn);
     }
 
     /**

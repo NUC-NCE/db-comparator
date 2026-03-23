@@ -13,6 +13,7 @@ import com.datacheck.sdk.model.ComparisonSummary;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileReader;
+import java.sql.Connection;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -27,13 +28,20 @@ import java.util.concurrent.Future;
 public class DbComparator implements AutoCloseable {
 
     private final Config config;
-    private final List<TableFilter> tableFilters;
+    private List<TableFilter> tableFilters;
     private final boolean writeResultFiles;
 
     private DatabaseConnector connector;
     private DataFetcher dataFetcher;
     private TableComparator comparator;
     private ResultWriter resultWriter;
+
+    // 外部注入的数据库连接
+    private Connection externalOracleConnection;
+    private Connection externalGaussConnection;
+
+    // 从数据库获取表配置的表名
+    private String tableConfigTable;
 
     private final Map<String, CompareResult> results = new ConcurrentHashMap<>();
     private ComparisonSummary summary;
@@ -45,6 +53,22 @@ public class DbComparator implements AutoCloseable {
         this.config = config;
         this.tableFilters = tableFilters;
         this.writeResultFiles = writeResultFiles;
+    }
+
+    /**
+     * 设置外部注入的数据库连接
+     */
+    public void setExternalConnections(Connection oracleConnection, Connection gaussConnection) {
+        this.externalOracleConnection = oracleConnection;
+        this.externalGaussConnection = gaussConnection;
+    }
+
+    /**
+     * 设置从数据库获取表配置的表名
+     * 默认为 table_check_info
+     */
+    public void setTableConfigTable(String tableConfigTable) {
+        this.tableConfigTable = tableConfigTable;
     }
 
     /**
@@ -77,14 +101,33 @@ public class DbComparator implements AutoCloseable {
 
     /**
      * 连接数据库
+     * 如果外部连接已注入，则使用外部连接
+     * 如果设置了tableConfigTable，则从数据库加载表配置
      */
     public void connect() throws Exception {
+        if (externalOracleConnection != null) {
+            connector.setExternalOracleConnection(externalOracleConnection);
+        }
+        if (externalGaussConnection != null) {
+            connector.setExternalGaussConnection(externalGaussConnection);
+        }
         connector.connectAll();
         dataFetcher = new DataFetcher(
             connector.getOracleConnection(),
             connector.getGaussConnection(),
             config
         );
+
+        // 如果设置了从数据库获取表配置，则加载表配置
+        if (tableConfigTable != null && !tableConfigTable.isEmpty()) {
+            System.out.println("从数据库表 " + tableConfigTable + " 获取表配置...");
+            List<TableFilter> dbFilters = dataFetcher.fetchTableFiltersFromOracle(tableConfigTable);
+            if (dbFilters != null && !dbFilters.isEmpty()) {
+                this.tableFilters.clear();
+                this.tableFilters.addAll(dbFilters);
+                System.out.println("从数据库获取到 " + this.tableFilters.size() + " 个表配置");
+            }
+        }
     }
 
     /**

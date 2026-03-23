@@ -2,6 +2,7 @@ package com.datacheck.db;
 
 import com.datacheck.Config;
 import com.datacheck.model.TableData;
+import com.datacheck.model.TableFilter;
 
 import java.sql.*;
 import java.util.ArrayList;
@@ -95,5 +96,43 @@ public class DataFetcher {
      */
     public TableMetadata getMetadata() {
         return metadata;
+    }
+
+    /**
+     * 从Oracle数据库获取表配置列表
+     * 表结构: table_check_info(table_name, condition, key)
+     * 数据库中 condition 和 key 字段已包含方括号格式，如 [condition], [key]
+     * 格式与文件格式一致
+     */
+    public List<TableFilter> fetchTableFiltersFromOracle(String configTableName) throws SQLException {
+        List<TableFilter> filters = new ArrayList<>();
+        String sql = "SELECT table_name, condition, key FROM " + configTableName;
+
+        try (Statement stmt = oracleConnection.createStatement();
+             ResultSet rs = stmt.executeQuery(sql)) {
+
+            while (rs.next()) {
+                String tableName = rs.getString("table_name");
+                String condition = rs.getString("condition");
+                String key = rs.getString("key");
+
+                // 直接拼接，数据库中 condition 和 key 已包含方括号
+                // 格式: tableName + condition + key
+                // 例如: users [status = 'active'] [user_id]
+                StringBuilder line = new StringBuilder();
+                line.append(tableName);
+
+                if (condition != null && !condition.trim().isEmpty()) {
+                    line.append(" ").append(condition.trim());
+                }
+
+                if (key != null && !key.trim().isEmpty()) {
+                    line.append(" ").append(key.trim());
+                }
+
+                filters.add(TableFilter.parse(line.toString()));
+            }
+        }
+        return filters;
     }
 }

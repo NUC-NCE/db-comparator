@@ -12,6 +12,8 @@
 - 支持自定义主键配置
 - 输出详细的差异报告
 - 支持 CLI 命令行和 SDK 编程调用
+- 支持直接传入数据库 Connection 对象（SDK）
+- 支持从数据库表获取表配置列表（SDK）
 
 ## 环境要求
 
@@ -113,7 +115,7 @@ java -jar db-comparator.jar \
 <dependency>
     <groupId>com.datacheck</groupId>
     <artifactId>db-comparator</artifactId>
-    <version>1.0-SNAPSHOT</version>
+    <version>1.1</version>
 </dependency>
 ```
 
@@ -178,6 +180,9 @@ try (DbComparator comparator = DbComparator.builder()
 | `writeResultFiles(boolean write)` | 是否写入结果文件 |
 | `oracleConfig(DatabaseConfig config)` | Oracle 配置对象 |
 | `gaussConfig(DatabaseConfig config)` | GaussDB 配置对象 |
+| `oracleConnection(Connection conn)` | 直接传入已建立的 Oracle Connection |
+| `gaussConnection(Connection conn)` | 直接传入已建立的 GaussDB Connection |
+| `tableConfigTable(String tableName)` | 从数据库表获取表配置的表名（默认 table_check_info） |
 
 ### SDK 使用示例
 
@@ -249,6 +254,44 @@ try (DbComparator comparator = DbComparator.builder()
 }
 ```
 
+**示例4：直接传入数据库连接**
+```java
+try (DbComparator comparator = DbComparator.builder()
+    .oracleConnection(existingOracleConn)
+    .gaussConnection(existingGaussConn)
+    .tableListFile("table.txt")
+    .build()) {
+
+    comparator.init();
+    comparator.connect();
+    comparator.compare();
+}
+```
+
+**示例5：从数据库获取表配置**
+```java
+try (DbComparator comparator = DbComparator.builder()
+    .oracleConnection(existingOracleConn)
+    .gaussConnection(existingGaussConn)
+    .tableConfigTable("table_check_info")  // 可选，默认 table_check_info
+    .build()) {
+
+    comparator.init();
+    comparator.connect();  // connect() 时自动从数据库加载表配置
+    comparator.compare();
+}
+```
+
+**table_check_info 表格式：**
+
+| table_name | condition | key |
+|------------|-----------|-----|
+| users | [status = 'active'] | [user_id] |
+| orders | [data_date = date'2026-03-22' and falg = '1'] | [fund_code,asset_code] |
+| products | [] | [product_id] |
+
+**说明**：condition 和 key 字段值已包含方括号格式，与 table.txt 文件格式一致。
+
 ### 结果获取
 
 ```java
@@ -286,6 +329,19 @@ for (Map.Entry<String, CompareResult> entry : results.entrySet()) {
 | 格式 | 示例 |
 |------|------|
 | 标准格式 | `jdbc:postgresql://192.168.1.101:5432/gaussdb` |
+
+---
+
+## 数值比较说明
+
+对比数值类型数据时，以下差异会被自动忽略，视为数据一致：
+
+| 差异类型 | 示例 | 比较结果 |
+|----------|------|----------|
+| 末尾零差异 | `0.8` vs `0.8000000` | 一致 |
+| 整数与小数 | `8` vs `8.0` | 一致 |
+| 科学计数法 | `1.2E-5` vs `0.000012` | 一致 |
+| 零的不同表示 | `0` vs `0E-8` | 一致 |
 
 ---
 

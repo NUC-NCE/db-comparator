@@ -113,7 +113,7 @@ java -jar db-comparator.jar \
 <dependency>
     <groupId>com.datacheck</groupId>
     <artifactId>db-comparator</artifactId>
-    <version>1.0-SNAPSHOT</version>
+    <version>1.1</version>
 </dependency>
 ```
 
@@ -286,6 +286,19 @@ for (Map.Entry<String, CompareResult> entry : results.entrySet()) {
 | Format | Example |
 |--------|---------|
 | Standard | `jdbc:postgresql://192.168.1.101:5432/gaussdb` |
+
+---
+
+## Numeric Comparison
+
+When comparing numeric data, the following differences are automatically ignored and considered consistent:
+
+| Difference Type | Example | Result |
+|-----------------|---------|--------|
+| Trailing zeros | `0.8` vs `0.8000000` | Consistent |
+| Integer vs decimal | `8` vs `8.0` | Consistent |
+| Scientific notation | `1.2E-5` vs `0.000012` | Consistent |
+| Zero representation | `0` vs `0E-8` | Consistent |
 
 ---
 

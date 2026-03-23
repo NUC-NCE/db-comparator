@@ -12,18 +12,34 @@ import java.sql.SQLException;
 public class DatabaseConnector {
     private Connection oracleConnection;
     private Connection gaussConnection;
+    private Connection externalOracleConnection;
+    private Connection externalGaussConnection;
     private final Config config;
 
     public DatabaseConnector(Config config) {
         this.config = config;
     }
 
+    /**
+     * 设置外部注入的 Oracle 连接
+     */
+    public void setExternalOracleConnection(Connection connection) {
+        this.externalOracleConnection = connection;
+    }
+
+    /**
+     * 设置外部注入的 Gauss 连接
+     */
+    public void setExternalGaussConnection(Connection connection) {
+        this.externalGaussConnection = connection;
+    }
+
     public Connection getOracleConnection() {
-        return oracleConnection;
+        return externalOracleConnection != null ? externalOracleConnection : oracleConnection;
     }
 
     public Connection getGaussConnection() {
-        return gaussConnection;
+        return externalGaussConnection != null ? externalGaussConnection : gaussConnection;
     }
 
     /**
@@ -70,11 +86,20 @@ public class DatabaseConnector {
 
     /**
      * 连接所有数据库
+     * 如果外部连接已注入，则跳过内部连接
      */
     public void connectAll() throws SQLException {
         try {
-            connectOracle();
-            connectGauss();
+            if (externalOracleConnection == null) {
+                connectOracle();
+            } else {
+                System.out.println("使用外部注入的 Oracle 连接");
+            }
+            if (externalGaussConnection == null) {
+                connectGauss();
+            } else {
+                System.out.println("使用外部注入的 Gauss 连接");
+            }
         } catch (SQLException e) {
             closeAll();
             throw e;

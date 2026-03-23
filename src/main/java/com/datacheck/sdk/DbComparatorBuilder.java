@@ -5,6 +5,7 @@ import com.datacheck.model.TableFilter;
 import com.datacheck.sdk.config.DatabaseConfig;
 import com.datacheck.sdk.config.SdkOptions;
 
+import java.sql.Connection;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -23,10 +24,17 @@ public class DbComparatorBuilder {
     private String gaussUsername;
     private String gaussPassword;
 
+    // 外部注入的数据库连接
+    private Connection oracleConnection;
+    private Connection gaussConnection;
+
     // 表列表
     private String tableListFile;
     private List<String> tableNames = new ArrayList<>();
     private List<TableFilter> tableFilters = new ArrayList<>();
+
+    // 从数据库获取表配置的表名
+    private String tableConfigTable = "table_check_info";
 
     // 选项配置
     private int threadCount = 4;
@@ -86,6 +94,24 @@ public class DbComparatorBuilder {
     }
 
     /**
+     * 直接传入已建立的 Oracle 数据库连接
+     * 使用此方法后将忽略 oracleJdbcUrl/oracleUsername/oraclePassword 配置
+     */
+    public DbComparatorBuilder oracleConnection(Connection connection) {
+        this.oracleConnection = connection;
+        return this;
+    }
+
+    /**
+     * 直接传入已建立的 GaussDB 数据库连接
+     * 使用此方法后将忽略 gaussJdbcUrl/gaussUsername/gaussPassword 配置
+     */
+    public DbComparatorBuilder gaussConnection(Connection connection) {
+        this.gaussConnection = connection;
+        return this;
+    }
+
+    /**
      * Oracle 配置对象
      */
     public DbComparatorBuilder oracleConfig(DatabaseConfig config) {
@@ -134,6 +160,16 @@ public class DbComparatorBuilder {
      */
     public DbComparatorBuilder addTable(String tableName) {
         this.tableNames.add(tableName);
+        return this;
+    }
+
+    /**
+     * 设置从数据库获取表配置的表名
+     * 默认表名为 table_check_info
+     * 表结构: table_name, condition, key
+     */
+    public DbComparatorBuilder tableConfigTable(String tableConfigTable) {
+        this.tableConfigTable = tableConfigTable;
         return this;
     }
 
@@ -220,6 +256,18 @@ public class DbComparatorBuilder {
             }
         }
 
-        return new DbComparator(config, filters, writeResultFiles);
+        DbComparator comparator = new DbComparator(config, filters, writeResultFiles);
+
+        // 设置外部注入的数据库连接
+        if (oracleConnection != null || gaussConnection != null) {
+            comparator.setExternalConnections(oracleConnection, gaussConnection);
+        }
+
+        // 设置从数据库获取表配置的表名
+        if (tableConfigTable != null && !tableConfigTable.isEmpty()) {
+            comparator.setTableConfigTable(tableConfigTable);
+        }
+
+        return comparator;
     }
 }
