@@ -269,10 +269,6 @@ public class DbComparator implements AutoCloseable {
         java.util.Set<String> commonPk = new java.util.HashSet<>(oraclePkSet);
         commonPk.retainAll(gaussPkSet);
 
-        // 分批获取共同主键的数据进行比对
-        List<List<Object[]>> oraclePkBatches = partitionList(oraclePkValues, batchSize);
-        List<List<Object[]>> gaussPkBatches = partitionList(gaussPkValues, batchSize);
-
         List<com.datacheck.model.Difference> differences = new ArrayList<>();
 
         // 处理 Oracle 独有的数据
@@ -310,15 +306,33 @@ public class DbComparator implements AutoCloseable {
         }
 
         // 分批比对共同主键的数据
-        for (int i = 0; i < oraclePkBatches.size(); i++) {
-            List<Object[]> oracleBatch = oraclePkBatches.get(i);
-            List<Object[]> gaussBatch = i < gaussPkBatches.size() ? gaussPkBatches.get(i) : new ArrayList<>();
+        // 将共同主键集合转换为列表，然后分批
+        java.util.List<String> commonPkList = new java.util.ArrayList<>(commonPk);
+        java.util.List<java.util.List<String>> commonPkBatches = partitionStringList(commonPkList, batchSize);
+
+        System.out.println("共同主键数量: " + commonPk.size() + "，分 " + commonPkBatches.size() + " 批处理");
+
+        for (java.util.List<String> pkBatch : commonPkBatches) {
+            // 根据主键字符串批次获取对应的主键值列表
+            java.util.List<Object[]> oraclePkBatch = new java.util.ArrayList<>();
+            for (Object[] pkRow : oraclePkValues) {
+                if (pkBatch.contains(buildPkKey(pkRow, primaryKeys))) {
+                    oraclePkBatch.add(pkRow);
+                }
+            }
+
+            java.util.List<Object[]> gaussPkBatch = new java.util.ArrayList<>();
+            for (Object[] pkRow : gaussPkValues) {
+                if (pkBatch.contains(buildPkKey(pkRow, primaryKeys))) {
+                    gaussPkBatch.add(pkRow);
+                }
+            }
 
             // 获取批次数据
             List<Object[]> oracleRows = dataFetcher.fetchRowsByPrimaryKeyBatch(
-                connector.getOracleConnection(), tableName, primaryKeys, oracleBatch, whereClause, true);
+                connector.getOracleConnection(), tableName, primaryKeys, oraclePkBatch, whereClause, true);
             List<Object[]> gaussRows = dataFetcher.fetchRowsByPrimaryKeyBatch(
-                connector.getGaussConnection(), tableName, primaryKeys, gaussBatch, whereClause, false);
+                connector.getGaussConnection(), tableName, primaryKeys, gaussPkBatch, whereClause, false);
 
             // 构建主键到行的映射
             java.util.Map<String, Object[]> oracleMap = new java.util.HashMap<>();
@@ -357,6 +371,17 @@ public class DbComparator implements AutoCloseable {
      */
     private <T> List<List<T>> partitionList(List<T> list, int batchSize) {
         List<List<T>> batches = new ArrayList<>();
+        for (int i = 0; i < list.size(); i += batchSize) {
+            batches.add(new ArrayList<>(list.subList(i, Math.min(i + batchSize, list.size()))));
+        }
+        return batches;
+    }
+
+    /**
+     * 将字符串列表分批
+     */
+    private List<List<String>> partitionStringList(List<String> list, int batchSize) {
+        List<List<String>> batches = new ArrayList<>();
         for (int i = 0; i < list.size(); i += batchSize) {
             batches.add(new ArrayList<>(list.subList(i, Math.min(i + batchSize, list.size()))));
         }
