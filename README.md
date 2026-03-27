@@ -297,6 +297,12 @@ try (DbComparator comparator = DbComparator.builder()
 
 当数据量较大时（如上百万行），SDK 会自动采用分批处理策略，防止内存溢出。
 
+**分批原理**：
+1. 先获取所有主键值（而非全量数据）
+2. 根据主键集合找出 Oracle 独有、Gauss 独有、共同主键
+3. 共同主键按 batchSize 分批，每批根据主键值获取完整数据进行比对
+4. 支持 Oracle 和 Gauss 数据量不一致的情况
+
 | 参数 | 默认值 | 说明 |
 |------|--------|------|
 | `batchSize` | 10000 | 每批处理的主键行数 |
@@ -305,6 +311,8 @@ try (DbComparator comparator = DbComparator.builder()
 ```java
 .batchConfig(10000, 50000)  // 可选，已为默认值
 ```
+
+**注意**：分批处理依赖主键配置（table_check_info.key），请确保主键配置正确。
 
 ### 结果获取
 
