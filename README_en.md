@@ -113,7 +113,7 @@ java -jar db-comparator.jar \
 <dependency>
     <groupId>com.datacheck</groupId>
     <artifactId>db-comparator</artifactId>
-    <version>1.1</version>
+    <version>1.2</version>
 </dependency>
 ```
 
